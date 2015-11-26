@@ -5,14 +5,23 @@ import (
 	"github.com/fsouza/go-dockerclient"
 	"time"
 	"fmt"
+	"log"
+	"sync"
 )
 
-const DOCKER_ENDPOINT = "unix:///var/run/docker.sock"
+// Map of container id to that container's done channel
+var runningContainers = make(map[string]chan bool)
+var runningLock = &sync.Mutex{}
 
-var running_containers = make(map[string]chan *docker.Stats)
+type ContainerStat struct {
+	ID string
+	Config *docker.Config
+	BaseStat *docker.Stats
+	CPUPercent float32
+	DiskUsage float32
+}
 
-func getClient() (*docker.Client, error) {
-	endpoint, _ := docker.DefaultDockerHost()
+func getClient(endpoint string) (*docker.Client, error) {
 	dockerHost := os.Getenv("DOCKER_HOST")
 	if dockerHost != "" {
 		return docker.NewClientFromEnv()
@@ -21,40 +30,104 @@ func getClient() (*docker.Client, error) {
 	return docker.NewClient(endpoint)
 }
 
-func fetchStats(id string, client *docker.Client) (chan *docker.Stats, chan bool) {
-	statChannel := make(chan *docker.Stats)
-	doneChannel := make(chan bool)
-	go client.Stats(docker.StatsOptions{
-		ID: id,
-		Stream: true,
-		Timeout: (time.Second*time.Duration(5)),
-		Stats: statChannel,
-		Done: doneChannel,
-	})
+func knownContainer(id string) chan bool {
+	runningLock.Lock()
+	defer runningLock.Unlock()
 
-	return statChannel, doneChannel
+	if doneChannel, ok := runningContainers[id]; ok {
+		return doneChannel
+	}
+	return nil
 }
 
-func Collect() {
-	client, err := getClient()
+func collect(id string, client *docker.Client, metricChannel chan *ContainerStat) {
+	if doneChannel := knownContainer(id); doneChannel != nil {
+		return
+	}
+
+	fmt.Println("starting", id)
+	stats := make(chan *docker.Stats)
+	doneChannel := make(chan bool)
+
+	runningLock.Lock()
+	runningContainers[id] = doneChannel
+	runningLock.Unlock()
+	defer fmt.Println("Ending collect for ", id)
+
+	go func() {
+		defer fmt.Println("Exited func for", id)
+		client.Stats(docker.StatsOptions{
+			ID: id,
+			Stream: true,
+			// This timeout is only for the intial connection
+			Timeout: (time.Second * time.Duration(5)),
+			Stats: stats,
+			Done: doneChannel,
+		})
+	}()
+
+	container, err := client.InspectContainer(id)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
+	}
+	// It seems that there is just one stat here. WTF?
+	for stat := range stats {
+		metricChannel <- calculateStat(container, stat)
+	}
+}
+
+func calculateStat(cont *docker.Container, stat *docker.Stats) *ContainerStat {
+	s := ContainerStat{
+		BaseStat: stat,
+		ID: cont.ID,
+		Config: cont.Config,
+		CPUPercent: 0,
+		DiskUsage: 0,
 	}
 
-	for {
-		fmt.Println("Trying... ")
-		containers, _ := client.ListContainers(docker.ListContainersOptions{All: false})
-		for _, container := range containers {
-			statChan := running_containers[container.ID]
-			if running_containers[container.ID] == nil {
-				fmt.Printf("Fetching new")
-				statChan, _ = fetchStats(container.ID, client)
-				running_containers[container.ID] = statChan
-			}
-			stat := <- statChan
+	return &s
+}
 
-			fmt.Printf("ID: %s, READ: %v\n", container.ID, stat.Read)
+func stopCollecting(id string) {
+	fmt.Println("stopped")
+	runningLock.Lock()
+	defer runningLock.Unlock()
+	if doneChannel, ok := runningContainers[id]; ok {
+		doneChannel <- true
+	}
+}
+
+func listenForContainers(client *docker.Client, metricChannel chan *ContainerStat) {
+	eventStream := make(chan *docker.APIEvents)
+	err := client.AddEventListener(eventStream)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer client.RemoveEventListener(eventStream)
+
+	for event := range eventStream {
+		fmt.Println(" ", event.ID, event.Status)
+		switch event.Status {
+		case "start":
+			go collect(event.ID, client, metricChannel)
+		case "die":
+			stopCollecting(event.ID)
 		}
-		time.Sleep(time.Second*time.Duration(3))
 	}
+}
+
+func Collect(dockerEndpoint string, interval int, metricChannel chan *ContainerStat) {
+
+	client, err := getClient(dockerEndpoint)
+	if err != nil {
+		log.Fatal(err)
+	}
+	containers, _ := client.ListContainers(docker.ListContainersOptions{All: false})
+	for _, container := range containers {
+		fmt.Println(container.ID)
+		go collect(container.ID, client, metricChannel)
+	}
+
+	listenForContainers(client, metricChannel)
 }
