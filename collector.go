@@ -70,9 +70,15 @@ func collect(id string, client *docker.Client, metricChannel chan *ContainerStat
 	if err != nil {
 		log.Fatal(err)
 	}
-	// It seems that there is just one stat here. WTF?
+
+	i := 4
+	// TODO: Stats get added to once a second. Abstract that so it can change.
 	for stat := range stats {
-		metricChannel <- calculateStat(container, stat)
+		if i == 4 {
+			metricChannel <- calculateStat(container, stat)
+			i = 0
+		}
+		i += 1
 	}
 }
 

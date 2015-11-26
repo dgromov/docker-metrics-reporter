@@ -34,5 +34,15 @@ func main() {
 
 	go Write(*dest, *port, *prefix, metricChannel)
 	Collect(*docker, *interval, metricChannel)
+
+	// TODO: Calculate CPU usage percent
+	// TODO: Calculate Disk usage
+	// TODO: Aggregate metrics that can fluctuate, i.e. memory usage
+	// TODO: Come up with abstraction for paths
+	// TODO: Dry Run mode
+	// TODO: Actually Send
+	// TODO: runit script (or other)
+	// TODO: FPM -> DEB -> S3
+	// TODO: UNIT TESTS! BUT HAO!?
 }
 
