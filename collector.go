@@ -40,7 +40,9 @@ func knownContainer(id string) chan bool {
 	return nil
 }
 
-func collect(id string, client *docker.Client, metricChannel chan *ContainerStat) {
+
+func collect(id string, client *docker.Client, metricChannel chan *ContainerStat,
+			 aggregator Aggregator) {
 	if doneChannel := knownContainer(id); doneChannel != nil {
 		return
 	}
@@ -71,28 +73,17 @@ func collect(id string, client *docker.Client, metricChannel chan *ContainerStat
 		log.Fatal(err)
 	}
 
-	i := 4
-	// TODO: Stats get added to once a second. Abstract that so it can change.
-	for stat := range stats {
-		if i == 4 {
-			metricChannel <- calculateStat(container, stat)
-			i = 0
-		}
-		i += 1
+	err = aggregator.Aggregate(AggregatorConfig{
+		container: container,
+		inChannel: stats,
+		outChannel: metricChannel,
+	})
+
+	if err != nil {
+		fmt.Printf("Could not collect this round")
 	}
 }
 
-func calculateStat(cont *docker.Container, stat *docker.Stats) *ContainerStat {
-	s := ContainerStat{
-		BaseStat: stat,
-		ID: cont.ID,
-		Config: cont.Config,
-		CPUPercent: 0,
-		DiskUsage: 0,
-	}
-
-	return &s
-}
 
 func stopCollecting(id string) {
 	fmt.Println("stopped")
@@ -103,7 +94,7 @@ func stopCollecting(id string) {
 	}
 }
 
-func listenForContainers(client *docker.Client, metricChannel chan *ContainerStat) {
+func listenForContainers(client *docker.Client, metricChannel chan *ContainerStat, aggregator Aggregator) {
 	eventStream := make(chan *docker.APIEvents)
 	err := client.AddEventListener(eventStream)
 	if err != nil {
@@ -116,14 +107,20 @@ func listenForContainers(client *docker.Client, metricChannel chan *ContainerSta
 		fmt.Println(" ", event.ID, event.Status)
 		switch event.Status {
 		case "start":
-			go collect(event.ID, client, metricChannel)
+			go collect(event.ID, client, metricChannel, aggregator)
 		case "die":
 			stopCollecting(event.ID)
 		}
 	}
 }
 
-func Collect(dockerEndpoint string, interval int, metricChannel chan *ContainerStat) {
+func BasicCollect(dockerEndpoint string, interval int, metricChannel chan *ContainerStat) {
+	ba := BasicAggregator{interval: interval}
+	Collect(dockerEndpoint, interval, metricChannel, ba)
+}
+
+func Collect(dockerEndpoint string, interval int, metricChannel chan *ContainerStat,
+			 aggregator Aggregator) {
 
 	client, err := getClient(dockerEndpoint)
 	if err != nil {
@@ -132,8 +129,8 @@ func Collect(dockerEndpoint string, interval int, metricChannel chan *ContainerS
 	containers, _ := client.ListContainers(docker.ListContainersOptions{All: false})
 	for _, container := range containers {
 		fmt.Println(container.ID)
-		go collect(container.ID, client, metricChannel)
+		go collect(container.ID, client, metricChannel, aggregator)
 	}
 
-	listenForContainers(client, metricChannel)
+	listenForContainers(client, metricChannel, aggregator)
 }

@@ -33,7 +33,7 @@ func main() {
 
 
 	go Write(*dest, *port, *prefix, metricChannel)
-	Collect(*docker, *interval, metricChannel)
+	BasicCollect(*docker, *interval, metricChannel)
 
 	// TODO: Calculate CPU usage percent
 	// TODO: Calculate Disk usage
