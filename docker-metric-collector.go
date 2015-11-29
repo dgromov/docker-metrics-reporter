@@ -7,9 +7,6 @@ import (
 
 func main() {
 	docker := flag.String("endpoint", "", "Docker endpoint")
-	dest := flag.String("graphite-host", "", "Graphite host")
-	port := flag.Int("graphite-port", 8888, "Graphite port")
-	prefix := flag.String("metric-prefix", "", "graphite metric prefix")
 	interval := flag.Int("interval", 60, "interval to report")
 
 //	if *dest == "" {
@@ -31,8 +28,7 @@ func main() {
 	flag.Parse()
 	metricChannel := make(chan *ContainerStat)
 
-
-	go Write(*dest, *port, *prefix, metricChannel)
+	go Write(ConsoleWriter{}, metricChannel)
 	BasicCollect(*docker, *interval, metricChannel)
 
 	// TODO: Calculate CPU usage percent
