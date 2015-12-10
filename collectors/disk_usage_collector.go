@@ -1,14 +1,15 @@
 package collectors
 
 import (
-	"github.com/dgromov/docker-to-graphite/common"
 	"github.com/fsouza/go-dockerclient"
+	"github.com/dgromov/docker-metrics-reporter/common"
 )
 
 var DiskUsageCollector Collector = Collector{
 	collectFunc:          BasicCollector.collectFunc,
 	aggregateAndSendFunc: BasicCollector.aggregateAndSendFunc,
 	measureFunc:          CPUAndDiskMeasure,
+	shouldMeasureFunc:    BasicCollector.shouldMeasureFunc,
 }
 
 func calculateDiskUsage(cont *docker.Container) (string, float64, error) {

@@ -3,20 +3,29 @@ package collectors
 import (
 	"fmt"
 
-	"github.com/dgromov/docker-to-graphite/common"
 	"github.com/fsouza/go-dockerclient"
 	"log"
 	"time"
+	"github.com/dgromov/docker-metrics-reporter/common"
 )
 
 var BasicCollector Collector = Collector{
 	collectFunc:          basicCollect,
 	measureFunc:          basicMeasure,
 	aggregateAndSendFunc: basicAggregate,
+	shouldMeasureFunc:    basicShouldMeasure,
 }
 
 func basicCollect(id string, client *docker.Client, metricChannel chan *common.ContainerStat) error {
 	if doneChannel := knownContainer(id); doneChannel != nil {
+		return nil
+	}
+	cont, err := client.InspectContainer(id)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if should_measure, _ := shouldMeasureFunc(cont); !should_measure {
 		return nil
 	}
 
@@ -41,16 +50,13 @@ func basicCollect(id string, client *docker.Client, metricChannel chan *common.C
 		})
 	}()
 
-	cont, err := client.InspectContainer(id)
-	if err != nil {
-		log.Fatal(err)
-	}
+
 
 	err = basicAggregate(AggregationConfig{
 		container:  cont,
 		inChannel:  stats,
 		outChannel: metricChannel,
-		interval:   3,
+		interval:   5,
 	})
 
 	if err != nil {
@@ -90,7 +96,6 @@ func flattenDockerStats(s *docker.Stats) (map[string]uint64, error) {
 
 		"cpu.total":  s.CPUStats.CPUUsage.TotalUsage,
 
-		s.BlkioStats.IOMergedRecursive
 	}, nil
 }
 
@@ -119,6 +124,7 @@ func basicMeasure(cont *docker.Container, stat *docker.Stats) *common.ContainerS
 		Collected: &collectables,
 		ID:        cont.ID,
 		Config:    cont.Config,
+		Timestamp: stat.Read,
 	}
 
 	return &s
@@ -136,4 +142,8 @@ func basicAggregate(conf AggregationConfig) error {
 		counter += 1
 	}
 	return nil
+}
+
+func basicShouldMeasure(cont *docker.Container) (bool, error) {
+	return true, nil
 }

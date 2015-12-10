@@ -2,12 +2,12 @@ package collectors
 
 import (
 	"fmt"
-	"github.com/fsouza/go-dockerclient"
 	"log"
 	"os"
 	"sync"
 
-	"github.com/dgromov/docker-to-graphite/common"
+	"github.com/fsouza/go-dockerclient"
+	"github.com/dgromov/docker-metrics-reporter/common"
 )
 
 // Map of container id to that container's done channel
@@ -41,9 +41,10 @@ type AggregationConfig struct {
 }
 
 type Collector struct {
-	collectFunc          func(id string, client *docker.Client, metricChannel chan *common.ContainerStat) error
-	measureFunc          func(cont *docker.Container, stat *docker.Stats) *common.ContainerStat
-	aggregateAndSendFunc func(conf AggregationConfig) error
+	collectFunc          func(string, *docker.Client, chan *common.ContainerStat) error
+	measureFunc          func(*docker.Container, *docker.Stats) *common.ContainerStat
+	aggregateAndSendFunc func(AggregationConfig) error
+	shouldMeasureFunc  func(*docker.Container) (bool, error)
 }
 
 func (c *Collector) listenForContainers(client *docker.Client, metricChannel chan *common.ContainerStat) {

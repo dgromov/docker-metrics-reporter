@@ -5,10 +5,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/dgromov/docker-to-graphite/writers"
-	"github.com/dgromov/docker-to-graphite/collectors"
-	"github.com/dgromov/docker-to-graphite/common"
-	"fmt"
+	"github.com/dgromov/docker-metrics-reporter/common"
+	"github.com/dgromov/docker-metrics-reporter/writers"
+	"github.com/dgromov/docker-metrics-reporter/collectors"
 )
 
 func main() {
@@ -33,9 +32,8 @@ func main() {
 
 	flag.Parse()
 	metricChannel := make(chan *common.ContainerStat)
-	fmt.Println("hi")
 	go writers.Write(writers.ConsoleWriter{}, metricChannel)
-	collectors.BasicCollector.Collect(*docker, *interval, metricChannel)
+	collectors.DiskUsageCollector.Collect(*docker, *interval, metricChannel)
 
 	// TODO: Calculate CPU usage percent
 	// TODO: Calculate Disk usage

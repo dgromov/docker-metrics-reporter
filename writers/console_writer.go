@@ -2,8 +2,7 @@ package writers
 
 import (
 	"fmt"
-	"github.com/dgromov/docker-to-graphite/common"
-	"time"
+	"github.com/dgromov/docker-metrics-reporter/common"
 )
 
 type ConsoleWriter struct{}
@@ -16,10 +15,6 @@ func (c ConsoleWriter) SendFloat(label string, value float64) {
 	fmt.Printf("%s -> %f\n", label, value)
 }
 
-func (c ConsoleWriter) Label(container *common.ContainerStat) string {
-	return container.ID
-}
-
-func (c ConsoleWriter) Timestamp(container *common.ContainerStat) time.Time {
-	return container.Timestamp
+func (c ConsoleWriter) Label(container *common.ContainerStat, name string) string {
+	return fmt.Sprintf("%s - %s.%s", container.Timestamp, container.ID, name)
 }
